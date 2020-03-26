@@ -168,33 +168,33 @@ public class EmguCVFacialAnimation : MonoBehaviour {
         TextureConvert.Texture2dToOutputArray (convertedTexture, img);
         CvInvoke.Flip (img, img, FlipType.Vertical);
 
-        using (CascadeClassifier classifier = new CascadeClassifier (filePath)) {
-            using (UMat gray = new UMat ()) {
-                CvInvoke.CvtColor (img, gray, ColorConversion.Bgr2Gray);
+        using (CascadeClassifier classifier = new CascadeClassifier (filePath))
+        using (UMat gray = new UMat ()) {
+            CvInvoke.CvtColor (img, gray, ColorConversion.Bgr2Gray);
 
-                Rectangle[] faces = classifier.DetectMultiScale (gray);
+            Rectangle[] faces = classifier.DetectMultiScale (gray);
 
-                facesVV = new VectorOfRect (classifier.DetectMultiScale (gray));
-                landmarks = new VectorOfVectorOfPointF ();
+            facesVV = new VectorOfRect (classifier.DetectMultiScale (gray));
+            landmarks = new VectorOfVectorOfPointF ();
 
-                if (facemark.Fit (gray, facesVV, landmarks)) {
-                    for (int i = 0; i < faces.Length; i++) {
-                        FaceInvoke.DrawFacemarks (img, landmarks[i], new MCvScalar (0, 255, 0));
-                        for (int j = 0; j < 68; j++) {
-                            if (displayOffsetMarkers) {
-                                Vector3 markerPos = new Vector3 (landmarks[i][j].X, landmarks[i][j].Y * -1f, 0f);
-                                Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.yellow);
-                            }
-                            UpdateActionUnits ();
-
+            if (facemark.Fit (gray, facesVV, landmarks)) {
+                for (int i = 0; i < faces.Length; i++) {
+                    FaceInvoke.DrawFacemarks (img, landmarks[i], new MCvScalar (0, 255, 0));
+                    for (int j = 0; j < 68; j++) {
+                        if (displayOffsetMarkers) {
+                            Vector3 markerPos = new Vector3 (landmarks[i][j].X, landmarks[i][j].Y * -1f, 0f);
+                            Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.yellow);
                         }
+                        UpdateActionUnits ();
 
                     }
 
                 }
 
             }
+
         }
+
         convertedTexture = TextureConvert.InputArrayToTexture2D (img, FlipType.Vertical);
         debugImage.sprite = Sprite.Create (convertedTexture, new Rect (0, 0, convertedTexture.width, convertedTexture.height), new Vector2 (0.5f, 0.5f));
 
