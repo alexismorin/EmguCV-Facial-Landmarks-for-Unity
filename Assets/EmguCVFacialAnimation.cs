@@ -56,13 +56,16 @@ public class EmguCVFacialAnimation : MonoBehaviour {
     [Header ("OpenCV Settings")]
     //   public TextAsset cascadeFile;
 
+    public float trackingInverval = 0.25f;
+
+    public TextAsset yamlFileUser;
+    public TextAsset cascadeModelUser;
+
     [Header ("Debugging")]
 
     public Image debugImage;
     public bool displayOffsetMarkers = true;
     public bool displayCalibrationMarkers = true;
-
-    // Internal
 
     // Internal
 
@@ -88,6 +91,9 @@ public class EmguCVFacialAnimation : MonoBehaviour {
     VectorOfRect facesVV;
 
     Vector3[] calibratedPositions = new Vector3[68];
+    Vector3 nosePosition;
+
+    bool calibrated = false;
 
     void Start () {
         // We initialize webcam texture data
@@ -102,7 +108,7 @@ public class EmguCVFacialAnimation : MonoBehaviour {
 
         fParams = new FacemarkLBFParams ();
         fParams.ModelFile = fmFilePath;
-        fParams.NLandmarks = 68; // number of landmark points // https://ibug.doc.ic.ac.uk/resources/facial-point-annotations/ normally 68
+        fParams.NLandmarks = 68; // number of landmark points, https://ibug.doc.ic.ac.uk/resources/facial-point-annotations/
         fParams.InitShapeN = 10; // number of multiplier for make data augmentation
         fParams.StagesN = 5; // amount of refinement stages
         fParams.TreeN = 6; // number of tree in the model for each landmark point
@@ -117,6 +123,8 @@ public class EmguCVFacialAnimation : MonoBehaviour {
         convertedTexture = new Texture2D (width, height);
 
         Debug.Log ("Tracking Started! Recording with " + webcamTexture.deviceName + " at " + webcamTexture.width + "x" + webcamTexture.height);
+
+        //     InvokeRepeating ("Track", trackingInverval, trackingInverval);
 
     }
 
@@ -134,64 +142,78 @@ public class EmguCVFacialAnimation : MonoBehaviour {
             calibratedPositions[i] = markerPos;
         }
 
-        // We offset them in-reference to the tip of the nose
-        //    for (int i = 0; i < calibratedPositions.Length; i++) {
-        //         calibratedPositions[i] = calibratedPositions[i] - calibratedPositions[30];
-        //          print ("Point #" + i + ": " + calibratedPositions[i]);
-        //      }
-
+        calibrated = true;
         Debug.Log ("Calibrated Sucessfully!");
 
     }
 
-    // Use this for initialization
     void Update () {
 
+        // Calibrate - you need to do this at least once
         if (Input.GetKeyDown (KeyCode.Space)) {
             Calibrate ();
         }
 
-        if (displayCalibrationMarkers) {
-            DisplayCalibration ();
-        }
-
+        // We fetch webcam texture data
         convertedTexture.SetPixels (webcamTexture.GetPixels ());
         convertedTexture.Apply ();
 
+        // We convert the webcam texture2D into the OpenCV image format
         UMat img = new UMat ();
         TextureConvert.Texture2dToOutputArray (convertedTexture, img);
         CvInvoke.Flip (img, img, FlipType.Vertical);
 
         using (CascadeClassifier classifier = new CascadeClassifier (filePath)) {
             using (UMat gray = new UMat ()) {
+
+                // We convert the OpenCV image format to the facial detection API parsable monochrome image type and detect the faces
                 CvInvoke.CvtColor (img, gray, ColorConversion.Bgr2Gray);
-
-                Rectangle[] faces = null;
-
-                faces = classifier.DetectMultiScale (gray);
-
                 facesVV = new VectorOfRect (classifier.DetectMultiScale (gray));
                 landmarks = new VectorOfVectorOfPointF ();
 
+                // we fit facial landmarks onto the face data
                 if (facemark.Fit (gray, facesVV, landmarks)) {
-                    for (int i = 0; i < faces.Length; i++) {
-                        FaceInvoke.DrawFacemarks (img, landmarks[i], new MCvScalar (255, 255, 0, 255));
-                        for (int j = 0; j < 68; j++) {
-                            if (displayOffsetMarkers) {
-                                Vector3 markerPos = new Vector3 (landmarks[i][j].X, landmarks[i][j].Y * -1f, 0f);
-                                Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.green);
-                            }
-                            UpdateActionUnits ();
+
+                    FaceInvoke.DrawFacemarks (img, landmarks[0], new MCvScalar (255, 255, 0, 255));
+
+                    // We calculate the nose position to use as a capture center
+                    nosePosition = new Vector3 (landmarks[0][30].X, landmarks[0][30].Y * -1f, 0f);
+
+                    // We draw markers and computer positions
+                    for (int j = 0; j < 68; j++) {
+
+                        Vector3 markerPos = new Vector3 (landmarks[0][j].X, landmarks[0][j].Y * -1f, 0f);
+                        AdjustCalibration (markerPos, j);
+                        UpdateActionUnits ();
+
+                        if (displayOffsetMarkers) {
+                            Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.green);
                         }
+
                     }
+                }
+
+                if (displayCalibrationMarkers) {
+                    DisplayCalibration ();
                 }
             }
         }
 
-        Texture2D texture = TextureConvert.InputArrayToTexture2D (img, FlipType.Vertical);
-        debugImage.sprite = Sprite.Create (texture, new Rect (0, 0, texture.width, texture.height), new Vector2 (0.5f, 0.5f));
+        // We render out the calculation result into the debug image
+        if (debugImage) {
+            Texture2D texture = TextureConvert.InputArrayToTexture2D (img, FlipType.Vertical);
+            debugImage.sprite = Sprite.Create (texture, new Rect (0, 0, texture.width, texture.height), new Vector2 (0.5f, 0.5f));
+        }
     }
 
+    // Adjusts the calibration  based on the nose offset
+    void AdjustCalibration (Vector3 markerPos, int index) {
+        if (calibrated) {
+            calibratedPositions[index] += nosePosition - calibratedPositions[30];
+        }
+    }
+
+    // Display calibration in-scene
     void DisplayCalibration () {
         if (calibratedPositions[0] != Vector3.zero) {
             for (int i = 0; i < calibratedPositions.Length; i++) {
