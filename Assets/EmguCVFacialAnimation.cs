@@ -8,7 +8,6 @@ using Emgu.CV.CvEnum;
 using Emgu.CV.Face;
 using Emgu.CV.Structure;
 using Emgu.CV.Util;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -123,7 +122,7 @@ public class EmguCVFacialAnimation : MonoBehaviour {
 
         Debug.Log ("Tracking Started! Recording with " + webcamTexture.deviceName + " at " + webcamTexture.width + "x" + webcamTexture.height);
 
-        InvokeRepeating ("Evaluate", 1f, 0.1f);
+        InvokeRepeating ("Evaluate", 0.1f, 0.1f);
     }
 
     void UpdateActionUnits () {
@@ -163,40 +162,38 @@ public class EmguCVFacialAnimation : MonoBehaviour {
         convertedTexture.SetPixels (webcamTexture.GetPixels ());
         convertedTexture.Apply ();
 
-        UMat img = new UMat ();
+        using (CascadeClassifier classifier = new CascadeClassifier (filePath)) {
+            using (UMat gray = new UMat ()) {
 
-        TextureConvert.Texture2dToOutputArray (convertedTexture, img);
-        CvInvoke.Flip (img, img, FlipType.Vertical);
+                UMat img = new UMat ();
 
-        using (CascadeClassifier classifier = new CascadeClassifier (filePath))
-        using (UMat gray = new UMat ()) {
-            CvInvoke.CvtColor (img, gray, ColorConversion.Bgr2Gray);
+                TextureConvert.Texture2dToOutputArray (convertedTexture, img);
+                CvInvoke.Flip (img, img, FlipType.Vertical);
 
-            Rectangle[] faces = classifier.DetectMultiScale (gray);
+                CvInvoke.CvtColor (img, gray, ColorConversion.Bgr2Gray);
 
-            facesVV = new VectorOfRect (classifier.DetectMultiScale (gray));
-            landmarks = new VectorOfVectorOfPointF ();
+                Rectangle[] faces = classifier.DetectMultiScale (gray);
 
-            if (facemark.Fit (gray, facesVV, landmarks)) {
-                for (int i = 0; i < faces.Length; i++) {
-                    FaceInvoke.DrawFacemarks (img, landmarks[i], new MCvScalar (0, 255, 0));
-                    for (int j = 0; j < 68; j++) {
-                        if (displayOffsetMarkers) {
-                            Vector3 markerPos = new Vector3 (landmarks[i][j].X, landmarks[i][j].Y * -1f, 0f);
-                            Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.yellow);
+                facesVV = new VectorOfRect (classifier.DetectMultiScale (gray));
+                landmarks = new VectorOfVectorOfPointF ();
+
+                if (facemark.Fit (gray, facesVV, landmarks)) {
+                    for (int i = 0; i < faces.Length; i++) {
+                        FaceInvoke.DrawFacemarks (img, landmarks[i], new MCvScalar (0, 255, 0));
+                        for (int j = 0; j < 68; j++) {
+                            if (displayOffsetMarkers) {
+                                Vector3 markerPos = new Vector3 (landmarks[i][j].X, landmarks[i][j].Y * -1f, 0f);
+                                Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.yellow);
+                            }
+                            UpdateActionUnits ();
                         }
-                        UpdateActionUnits ();
-
                     }
-
                 }
 
+                convertedTexture = TextureConvert.InputArrayToTexture2D (img, FlipType.Vertical);
+                debugImage.sprite = Sprite.Create (convertedTexture, new Rect (0, 0, convertedTexture.width, convertedTexture.height), new Vector2 (0.5f, 0.5f));
             }
-
         }
-
-        convertedTexture = TextureConvert.InputArrayToTexture2D (img, FlipType.Vertical);
-        debugImage.sprite = Sprite.Create (convertedTexture, new Rect (0, 0, convertedTexture.width, convertedTexture.height), new Vector2 (0.5f, 0.5f));
 
     }
 
