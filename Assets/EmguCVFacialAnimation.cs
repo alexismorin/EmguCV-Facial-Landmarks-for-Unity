@@ -17,17 +17,19 @@ public class EmguCVFacialAnimation : MonoBehaviour {
 
     // Front-Facing
 
-    [Header ("FACS Facial Action Units")]
+    [Header ("FACS Head Movement Action Units ")]
 
     [Range (-1f, 1f)] // Point #2 & #31
     public float horizontalHeadOrientation = 0f;
-    float neutralHorizontalHeadOrientationPointSpacing;
+    public float horizontalHeadOrientationScale = 0.05f;
+    float neutralHorizontalHeadOrientation = 0f;
 
     [Range (-1f, 1f)] // Point #28 & #29
     public float verticalHeadOrientation = 0f;
-    float neutralVerticalHeadOrientationPointSpacing;
+    public float verticalHeadOrientationScale = 0.05f;
+    float neutralVerticalHeadOrientation = 0f;
 
-    [Header ("FACS Head Movement Action Units ")]
+    [Header ("FACS Facial Action Units")]
 
     [Range (-1f, 1f)] // Point #22 & #23
     public float innerBrowRaiser = 0f;
@@ -54,18 +56,19 @@ public class EmguCVFacialAnimation : MonoBehaviour {
     public float blink = 0f;
 
     [Header ("OpenCV Settings")]
-    //   public TextAsset cascadeFile;
 
-    public float trackingInverval = 0.25f;
+    public float trackingInterval = 0.25f;
+    public float trackingSmoothingTime = 0.1f;
 
-    public TextAsset yamlFileUser;
-    public TextAsset cascadeModelUser;
+    public TextAsset yamlFile;
+    public TextAsset cascadeModel;
 
     [Header ("Debugging")]
 
     public Image debugImage;
     public bool displayOffsetMarkers = true;
     public bool displayCalibrationMarkers = true;
+    public bool displaySmoothedPositions = true;
 
     // Internal
 
@@ -73,29 +76,30 @@ public class EmguCVFacialAnimation : MonoBehaviour {
     int width = 0;
     int height = 0;
 
-    String fileName = "haarcascade_frontalface_alt2";
     String filePath;
-
-    String fmFileName = "lbfmodel";
     String fmFilePath;
 
     FacemarkLBFParams fParams;
     FacemarkLBF facemark;
 
-    TextAsset yamlFile;
-    TextAsset cascadeModel;
-
     Texture2D convertedTexture;
 
     VectorOfVectorOfPointF landmarks;
+    VectorOfVectorOfPointF lastPositions = null;
+
     VectorOfRect facesVV;
 
     Vector3[] calibratedPositions = new Vector3[68];
-    Vector3 nosePosition;
-
+    Vector3[] smoothedPositions = new Vector3[68];
+    Vector3 noseOffset;
     bool calibrated = false;
+    bool recording = false;
+
+    Vector3[] velRef = new Vector3[68];
 
     void Start () {
+        //cascadePath = Path.Combine (Directory.GetCurrentDirectory (), AssetDatabase.GetAssetPath (cascadeFile));
+
         // We initialize webcam texture data
         webcamTexture = new WebCamTexture ();
         webcamTexture.Play ();
@@ -103,35 +107,62 @@ public class EmguCVFacialAnimation : MonoBehaviour {
         width = webcamTexture.width;
         height = webcamTexture.height;
 
-        filePath = Path.Combine (Application.persistentDataPath, fileName + ".xml");
-        fmFilePath = Path.Combine (Application.persistentDataPath, fmFileName + ".yaml");
+        // We store settings internally for openCV after loading them in, these are the filepaths
+        filePath = Path.Combine (Application.persistentDataPath, cascadeModel.name + ".xml");
+        fmFilePath = Path.Combine (Application.persistentDataPath, "lbfmodel.yaml");
 
+        // We initialize the facemark system that will be used to recognize our face
         fParams = new FacemarkLBFParams ();
         fParams.ModelFile = fmFilePath;
-        fParams.NLandmarks = 68; // number of landmark points, https://ibug.doc.ic.ac.uk/resources/facial-point-annotations/
-        fParams.InitShapeN = 10; // number of multiplier for make data augmentation
-        fParams.StagesN = 5; // amount of refinement stages
-        fParams.TreeN = 6; // number of tree in the model for each landmark point
-        fParams.TreeDepth = 5; //he depth of decision tree
         facemark = new FacemarkLBF (fParams);
         facemark.LoadModel (fParams.ModelFile);
 
-        cascadeModel = Resources.Load<TextAsset> (fileName);
         File.WriteAllBytes (filePath, cascadeModel.bytes);
-        yamlFile = Resources.Load<TextAsset> (fmFileName);
 
         convertedTexture = new Texture2D (width, height);
 
         Debug.Log ("Tracking Started! Recording with " + webcamTexture.deviceName + " at " + webcamTexture.width + "x" + webcamTexture.height);
 
-        //     InvokeRepeating ("Track", trackingInverval, trackingInverval);
+        InvokeRepeating ("Track", trackingInterval, trackingInterval);
 
     }
 
     void UpdateActionUnits () {
 
-        // Horizontal Head Orientation
-        //   horizontalHeadOrientation =
+        if (calibrated) {
+
+            // Horizontal Head Orientation
+            horizontalHeadOrientation = Mathf.Clamp ((neutralHorizontalHeadOrientation - Vector3.Distance (calibratedPositions[30], smoothedPositions[1])) * horizontalHeadOrientationScale, 0f, 1f);
+            // Vertical Head Orientation
+            verticalHeadOrientation = Mathf.Clamp ((neutralVerticalHeadOrientation - Vector3.Distance (calibratedPositions[57], smoothedPositions[8])) * verticalHeadOrientationScale, 0f, 1f);
+        }
+
+    }
+
+    void Update () {
+        // Calibrate - you need to do this at least once
+        if (Input.GetKeyDown (KeyCode.Space)) {
+            Calibrate ();
+        }
+
+        // Calculate moothed positions
+
+        if (recording) {
+
+            for (int i = 0; i < 68; i++) {
+                Vector3 currentVector = new Vector3 (landmarks[0][i].X, landmarks[0][i].Y * -1f, 0f);
+                smoothedPositions[i] = Vector3.SmoothDamp (smoothedPositions[i], currentVector, ref velRef[i], trackingSmoothingTime);
+
+                // Draw Smoothed positions
+                if (displaySmoothedPositions) {
+                    Debug.DrawLine (smoothedPositions[i], smoothedPositions[i] + (Vector3.forward * 3f), UnityEngine.Color.white);
+                }
+            }
+
+            UpdateActionUnits ();
+
+        }
+
     }
 
     void Calibrate () {
@@ -142,16 +173,19 @@ public class EmguCVFacialAnimation : MonoBehaviour {
             calibratedPositions[i] = markerPos;
         }
 
+        // Horizontal Head Orientation
+        neutralHorizontalHeadOrientation = Vector3.Distance (calibratedPositions[30], smoothedPositions[1]);
+        // Vertical Head Orientation
+        neutralVerticalHeadOrientation = Vector3.Distance (calibratedPositions[57], smoothedPositions[8]);
+
         calibrated = true;
         Debug.Log ("Calibrated Sucessfully!");
 
     }
 
-    void Update () {
-
-        // Calibrate - you need to do this at least once
-        if (Input.GetKeyDown (KeyCode.Space)) {
-            Calibrate ();
+    void Track () {
+        if (lastPositions != null) {
+            lastPositions = landmarks;
         }
 
         // We fetch webcam texture data
@@ -177,20 +211,23 @@ public class EmguCVFacialAnimation : MonoBehaviour {
                     FaceInvoke.DrawFacemarks (img, landmarks[0], new MCvScalar (255, 255, 0, 255));
 
                     // We calculate the nose position to use as a capture center
-                    nosePosition = new Vector3 (landmarks[0][30].X, landmarks[0][30].Y * -1f, 0f);
+                    noseOffset = new Vector3 (landmarks[0][67].X, landmarks[0][67].Y * -1f, 0f);
 
                     // We draw markers and computer positions
                     for (int j = 0; j < 68; j++) {
 
                         Vector3 markerPos = new Vector3 (landmarks[0][j].X, landmarks[0][j].Y * -1f, 0f);
-                        AdjustCalibration (markerPos, j);
-                        UpdateActionUnits ();
 
                         if (displayOffsetMarkers) {
-                            Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.green);
+                            Debug.DrawLine (markerPos, markerPos + (Vector3.forward * 3f), UnityEngine.Color.green, trackingInterval);
                         }
 
+                        AdjustCalibration (j, markerPos);
+
                     }
+                    recording = true;
+                } else {
+                    recording = false;
                 }
 
                 if (displayCalibrationMarkers) {
@@ -204,20 +241,24 @@ public class EmguCVFacialAnimation : MonoBehaviour {
             Texture2D texture = TextureConvert.InputArrayToTexture2D (img, FlipType.Vertical);
             debugImage.sprite = Sprite.Create (texture, new Rect (0, 0, texture.width, texture.height), new Vector2 (0.5f, 0.5f));
         }
+
     }
 
     // Adjusts the calibration  based on the nose offset
-    void AdjustCalibration (Vector3 markerPos, int index) {
+    void AdjustCalibration (int i, Vector3 markerPos) {
         if (calibrated) {
-            calibratedPositions[index] += nosePosition - calibratedPositions[30];
+
+            calibratedPositions[i] += noseOffset - calibratedPositions[67];
+
         }
+
     }
 
     // Display calibration in-scene
     void DisplayCalibration () {
         if (calibratedPositions[0] != Vector3.zero) {
             for (int i = 0; i < calibratedPositions.Length; i++) {
-                Debug.DrawLine (calibratedPositions[i], calibratedPositions[i] + (Vector3.forward * 3f), UnityEngine.Color.red);
+                Debug.DrawLine (calibratedPositions[i], calibratedPositions[i] + (Vector3.forward * 3f), UnityEngine.Color.red, trackingInterval);
             }
         }
     }
