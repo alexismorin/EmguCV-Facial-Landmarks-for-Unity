@@ -1,6 +1,8 @@
 # EmguCV Facial Landmarks for Unity
-## OpenCV Face Tracking Sample
+## An OpenCV-Based Facial Animation Tool
 
-This small Unity 2019.3.6 sample is an out-of-the-box release of EmguCV with a facial landmark sample added in for your perusing pleasure. In the future this repo will be expanded as an OpenCV-based Open-Source facial animation tool.
+![header](images/semifi.gif)
 
-![header](images/header.png)
+This small Unity 2019.3.6 project is a work-in-progress facial animation tool built on the EmguCV facial landmark detection framework. It's far from complete but for now you can use it with any old webcam to automatically detect facial landmarks and smoothly animate objects based on their positions.
+
+In the future this repo will be expanded as a more stable complete tool with a FACS/Blendshapes system.
