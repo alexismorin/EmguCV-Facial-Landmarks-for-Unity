@@ -70,6 +70,10 @@ public class EmguCVFacialAnimation : MonoBehaviour {
     public bool displayCalibrationMarkers = true;
     public bool displaySmoothedPositions = true;
 
+    [Header ("TrackedPointUpdater")]
+
+    public Transform trackedTransformsRoot;
+
     // Internal
 
     WebCamTexture webcamTexture;
@@ -160,6 +164,12 @@ public class EmguCVFacialAnimation : MonoBehaviour {
             }
 
             UpdateActionUnits ();
+
+            if (trackedTransformsRoot != null) {
+                for (int i = 0; i < trackedTransformsRoot.childCount; i++) {
+                    trackedTransformsRoot.GetChild (i).localPosition = smoothedPositions[i];
+                }
+            }
 
         }
 
